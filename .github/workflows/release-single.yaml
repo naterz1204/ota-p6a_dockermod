@@ -149,19 +149,20 @@ jobs:
           echo "Image.lz4 generated successfully."
 
           echo "Extracting stock boot image from OTA..."
+          mkdir -p .tmp/boot_work
           .tmp/avbroot ota extract --input ".tmp/$OTA_TARGET.zip" --directory .tmp/extracted_boot --partition boot
           STOCK_BOOT=".tmp/extracted_boot/boot.img"
 
-          echo "Unpacking stock boot image header..."
-          .tmp/avbroot boot unpack --input "$STOCK_BOOT" --output-header .tmp/boot.toml --no-output-kernel
+          echo "Unpacking stock boot image (header and ramdisk)..."
+          .tmp/avbroot boot unpack --input "$STOCK_BOOT" --output-header .tmp/boot_work/boot.toml --output-ramdisk-prefix .tmp/boot_work/ramdisk.img. --no-output-kernel
 
           echo "Repacking boot image with Docker GKI kernel..."
           REPACKED_BOOT=".tmp/boot_docker.img"
-          .tmp/avbroot boot pack --input-header .tmp/boot.toml --input-kernel "$NEW_KERNEL" --output "$REPACKED_BOOT"
+          .tmp/avbroot boot pack --input-header .tmp/boot_work/boot.toml --input-ramdisk-prefix .tmp/boot_work/ramdisk.img. --input-kernel "$NEW_KERNEL" --output "$REPACKED_BOOT"
 
           echo "Hooking repacked boot into patchOTAs via rooted-ota.sh..."
-          # Patch rooted-ota.sh in-place so avbroot uses --prepatched boot=...
-          sed -i "s|args+=(\"--output\" \"\$targetFile\")|args+=(\"--output\" \"\$targetFile\")\n      args+=(\"--patch-arg=--prepatched\" \"--patch-arg\" \"boot=$REPACKED_BOOT\")|g" rooted-ota.sh
+          # Patch rooted-ota.sh in-place so avbroot uses --prepatched boot=.tmp/boot_docker.img (relative to /app container mount)
+          sed -i 's|args+=("--output" "$targetFile")|args+=("--output" "$targetFile")\n      args+=("--patch-arg=--prepatched" "--patch-arg" "boot=.tmp/boot_docker.img")|g' rooted-ota.sh
           echo "Successfully wired prepatched Docker boot image."
       - name: release
         env:
