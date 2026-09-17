@@ -186,6 +186,10 @@ jobs:
             exit 1
           fi
 
+          echo "Patching extract-cert.c for host OpenSSL 3 and preserving clean git tree..."
+          sed -i 's|int main(int argc, char \*\*argv)|const char *key_pass = NULL;\nint main(int argc, char **argv)|' "$KERNEL_SRC_DIR/certs/extract-cert.c"
+          git -C "$KERNEL_SRC_DIR" update-index --assume-unchanged certs/extract-cert.c
+
           export BRANCH="${EXPECTED_BRANCH}-6.1"
           export KMI_GENERATION="$EXPECTED_KMI"
           export KBUILD_BUILD_TIMESTAMP="$(git -C "$KERNEL_SRC_DIR" log -1 --format=%cd --date=format:'%a %b %e %H:%M:%S UTC %Y')"
