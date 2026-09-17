@@ -15,9 +15,16 @@ on:
       device-id:
         description: Device ID
         required: true
+        default: 'bluejay'
       magisk-preinit-device:
         description: Magisk preinit device
         required: false
+        default: 'sda8'
+      build-docker-kernel:
+        description: Build custom Docker GKI kernel (Pixel 6a)
+        type: boolean
+        required: false
+        default: false
       skip-rootless:
         description: skip building rootless OTA
         type: boolean
@@ -82,6 +89,7 @@ jobs:
           echo "SKIP_ROOTLESS=$(echo '${{ github.event.inputs.skip-rootless || '' }}' | xargs)" >> $GITHUB_ENV
           echo "SKIP_RELEASE=$(echo '${{ github.event.inputs.skip-release || '' }}' | xargs)" >> $GITHUB_ENV
           echo "SKIP_PIXINCREATE=$(echo '${{ github.event.inputs.skip-pixincreate || 'false' }}' | xargs)" >> $GITHUB_ENV
+          echo "BUILD_DOCKER_KERNEL=$(echo '${{ github.event.inputs.build-docker-kernel || 'false' }}' | xargs)" >> $GITHUB_ENV
           
           if [[ "${{ github.event_name }}" == "push" ]]  || [[ "${{ github.event_name }}" == "pull_request" ]]; then
             echo "Running on push: Simple build without release for device $DEVICE_ID"
@@ -94,7 +102,54 @@ jobs:
           for key_value_pair in "${env_vars[@]}"; do
             echo "$key_value_pair" >> $GITHUB_ENV
           done
-      - run: sudo apt-get install -y jq curl git
+      - name: Install dependencies
+        run: sudo apt-get install -y jq curl git bc bison flex libssl-dev libelf-dev lz4 gcc-aarch64-linux-gnu
+      - name: Build custom Docker GKI kernel and prepare prepatched boot
+        if: env.BUILD_DOCKER_KERNEL == 'true'
+        run: |
+          set -euo pipefail
+          echo "=== Building Docker-enabled GKI Kernel ==="
+          . rooted-ota.sh
+          init
+          determineOtaVersion
+          downloadOta
+          downloadAndVerifyTools
+
+          KERNEL_SRC_DIR="$RUNNER_TEMP/kernel"
+          KERNEL_OUT_DIR="$RUNNER_TEMP/kernel_out"
+          mkdir -p "$KERNEL_OUT_DIR"
+
+          echo "Cloning GrapheneOS kernel_common-6.1..."
+          git clone --depth 1 https://github.com/GrapheneOS/kernel_common-6.1.git "$KERNEL_SRC_DIR"
+
+          echo "Appending Docker configuration to gki_defconfig..."
+          cat ota/docker.config >> "$KERNEL_SRC_DIR/arch/arm64/configs/gki_defconfig"
+
+          echo "Compiling GKI Image.lz4..."
+          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image.lz4
+
+          NEW_KERNEL="$KERNEL_OUT_DIR/arch/arm64/boot/Image.lz4"
+          if [[ ! -f "$NEW_KERNEL" ]]; then
+            echo "Error: Image.lz4 not generated at $NEW_KERNEL"
+            exit 1
+          fi
+
+          echo "Extracting stock boot image from OTA..."
+          .tmp/avbroot ota extract --input ".tmp/$OTA_TARGET.zip" --directory .tmp/extracted_boot --partition boot
+          STOCK_BOOT=".tmp/extracted_boot/boot.img"
+
+          echo "Unpacking stock boot image header..."
+          .tmp/avbroot boot unpack --input "$STOCK_BOOT" --output-header .tmp/boot.toml --no-output-kernel
+
+          echo "Repacking boot image with Docker GKI kernel..."
+          REPACKED_BOOT=".tmp/boot_docker.img"
+          .tmp/avbroot boot pack --input-header .tmp/boot.toml --input-kernel "$NEW_KERNEL" --output "$REPACKED_BOOT"
+
+          echo "Hooking repacked boot into patchOTAs via rooted-ota.sh..."
+          # Patch rooted-ota.sh in-place so avbroot uses --prepatched boot=...
+          sed -i "s|args+=(\"--output\" \"\$targetFile\")|args+=(\"--output\" \"\$targetFile\")\n      args+=(\"--patch-arg=--prepatched\" \"--patch-arg\" \"boot=$REPACKED_BOOT\")|g" rooted-ota.sh
+          echo "Successfully wired prepatched Docker boot image."
       - name: release
         env:
           PASSPHRASE_AVB: ${{ secrets.PASSPHRASE_AVB }}
