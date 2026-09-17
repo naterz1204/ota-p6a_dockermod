@@ -129,15 +129,18 @@ jobs:
           echo "Appending Docker configuration to gki_defconfig..."
           cat ota/docker.config >> "$KERNEL_SRC_DIR/arch/arm64/configs/gki_defconfig"
 
-          echo "Compiling GKI Image.lz4..."
-          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
-          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image.lz4
+          echo "Compiling GKI Image with LLVM/Clang..."
+          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image
 
+          RAW_IMAGE="$KERNEL_OUT_DIR/arch/arm64/boot/Image"
           NEW_KERNEL="$KERNEL_OUT_DIR/arch/arm64/boot/Image.lz4"
-          if [[ ! -f "$NEW_KERNEL" ]]; then
-            echo "Error: Image.lz4 not generated at $NEW_KERNEL"
+          if [[ ! -f "$RAW_IMAGE" ]]; then
+            echo "Error: Image not generated at $RAW_IMAGE"
             exit 1
           fi
+          lz4 -f -l -12 --favor-dec "$RAW_IMAGE" "$NEW_KERNEL"
+          echo "Image.lz4 generated successfully."
 
           echo "Extracting stock boot image from OTA..."
           .tmp/avbroot ota extract --input ".tmp/$OTA_TARGET.zip" --directory .tmp/extracted_boot --partition boot
