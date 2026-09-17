@@ -130,8 +130,8 @@ jobs:
           cat ota/docker.config >> "$KERNEL_SRC_DIR/arch/arm64/configs/gki_defconfig"
 
           echo "Compiling GKI Image with LLVM/Clang..."
-          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
-          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) Image
+          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-D__ANDROID_COMMON_KERNEL__" --output-sync=target -j$(nproc) Image
 
           RAW_IMAGE="$KERNEL_OUT_DIR/arch/arm64/boot/Image"
           NEW_KERNEL="$KERNEL_OUT_DIR/arch/arm64/boot/Image.lz4"
