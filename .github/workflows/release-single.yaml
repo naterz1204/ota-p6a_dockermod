@@ -129,6 +129,9 @@ jobs:
           echo "Appending Docker configuration to gki_defconfig..."
           cat ota/docker.config >> "$KERNEL_SRC_DIR/arch/arm64/configs/gki_defconfig"
 
+          echo "Patching extract-cert.c for host OpenSSL 3 compatibility..."
+          sed -i 's|int main(int argc, char \*\*argv)|const char *key_pass = NULL;\nint main(int argc, char **argv)|' "$KERNEL_SRC_DIR/certs/extract-cert.c"
+
           echo "Compiling GKI Image with LLVM/Clang..."
           make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
           make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-D__ANDROID_COMMON_KERNEL__" --output-sync=target -j$(nproc) Image
