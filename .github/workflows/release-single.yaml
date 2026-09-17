@@ -176,8 +176,52 @@ jobs:
           sed -i 's|args+=("--output" "$targetFile")|args+=("--output" "$targetFile")\n      args+=("--patch-arg=--replace" "--patch-arg" "boot" "--patch-arg" ".tmp/boot_docker.img")|g' rooted-ota.sh
           echo "Successfully wired replaced Docker boot image."
 
-          echo "Patching uploadFile to use official gh CLI for large asset uploads..."
-          sed -i 's|curl --fail -X POST.*|gh release upload "$OTA_VERSION" "$sourceFileName#$targetFileName" --clobber --repo "$GITHUB_REPO"|g' rooted-ota.sh
+          echo "Patching uploadFile to use official gh CLI with retries for large asset uploads..."
+          python3 -c '
+with open("rooted-ota.sh", "r") as f:
+    content = f.read()
+
+old_func = """function uploadFile() {
+  local sourceFileName="$1"
+  local targetFileName="$2"
+  local contentType="$3"
+
+  # Note that --data-binary might lead to out of memory
+  curl --fail -X POST -H "Authorization: token $GITHUB_TOKEN" \\
+    -H "Content-Type: $contentType" \\
+    --upload-file "$sourceFileName" \\
+    "https://uploads.github.com/repos/$GITHUB_REPO/releases/$RELEASE_ID/assets?name=$targetFileName"
+}"""
+
+new_func = """function uploadFile() {
+  local sourceFileName="$1"
+  local targetFileName="$2"
+  local contentType="$3"
+
+  local attempt=1
+  local max_attempts=5
+  while [ $attempt -le $max_attempts ]; do
+    echo "Uploading asset $sourceFileName (attempt $attempt/$max_attempts)..."
+    if gh release upload "$OTA_VERSION" "$sourceFileName" --clobber --repo "$GITHUB_REPO"; then
+      echo "Successfully uploaded $sourceFileName"
+      return 0
+    fi
+    echo "Upload failed. Waiting 10s before retry..."
+    sleep 10
+    attempt=$((attempt + 1))
+  done
+  echo "Failed to upload $sourceFileName after $max_attempts attempts."
+  return 1
+}"""
+
+if old_func in content:
+    content = content.replace(old_func, new_func)
+    with open("rooted-ota.sh", "w") as f:
+        f.write(content)
+    print("uploadFile function replaced successfully.")
+else:
+    print("WARNING: old uploadFile signature not matched exactly.")
+'
       - name: release
         env:
           PASSPHRASE_AVB: ${{ secrets.PASSPHRASE_AVB }}
