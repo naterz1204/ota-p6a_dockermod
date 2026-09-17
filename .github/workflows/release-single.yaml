@@ -62,7 +62,7 @@ on:
 jobs:
   build-device:
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # Make sure to not waste hours when some command does not return 
+    timeout-minutes: 90 # Kernel compile + OTA patching can exceed 20 min
     steps:
       - name: Checkout rooted-graphene script repository
         uses: actions/checkout@v4
@@ -103,7 +103,10 @@ jobs:
             echo "$key_value_pair" >> $GITHUB_ENV
           done
       - name: Install dependencies
-        run: sudo apt-get install -y jq curl git bc bison flex libssl-dev libelf-dev lz4 gcc-aarch64-linux-gnu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl git bc bison flex libssl-dev libelf-dev lz4 \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu clang llvm lld dwarves kmod
       - name: Build custom Docker GKI kernel and prepare prepatched boot
         if: env.BUILD_DOCKER_KERNEL == 'true'
         run: |
