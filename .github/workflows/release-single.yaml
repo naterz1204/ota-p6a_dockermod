@@ -112,11 +112,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Building Docker-enabled GKI Kernel ==="
+          export SKIP_CLEANUP=true
           . rooted-ota.sh
-          init
-          determineOtaVersion
-          downloadOta
-          downloadAndVerifyTools
+          findLatestVersion
+          checkBuildNecessary
+          downloadAndroidDependencies
+          downloadAvBroot
 
           KERNEL_SRC_DIR="$RUNNER_TEMP/kernel"
           KERNEL_OUT_DIR="$RUNNER_TEMP/kernel_out"
