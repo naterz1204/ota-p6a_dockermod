@@ -161,9 +161,10 @@ jobs:
           .tmp/avbroot boot pack --input-header .tmp/boot_work/boot.toml --input-ramdisk-prefix .tmp/boot_work/ramdisk.img. --input-kernel "$NEW_KERNEL" --output "$REPACKED_BOOT"
 
           echo "Hooking repacked boot into patchOTAs via rooted-ota.sh..."
-          # Patch rooted-ota.sh in-place so avbroot uses --prepatched boot=.tmp/boot_docker.img (relative to /app container mount)
-          sed -i 's|args+=("--output" "$targetFile")|args+=("--output" "$targetFile")\n      args+=("--patch-arg=--prepatched" "--patch-arg" "boot=.tmp/boot_docker.img")|g' rooted-ota.sh
-          echo "Successfully wired prepatched Docker boot image."
+          # avbroot ota patch treats <--magisk | --prepatched | --rootless> as mutually exclusive modes.
+          # To patch Magisk INTO our custom boot image, we use --replace boot <image> along with --magisk:
+          sed -i 's|args+=("--output" "$targetFile")|args+=("--output" "$targetFile")\n      args+=("--patch-arg=--replace" "--patch-arg" "boot" "--patch-arg" ".tmp/boot_docker.img")|g' rooted-ota.sh
+          echo "Successfully wired replaced Docker boot image."
       - name: release
         env:
           PASSPHRASE_AVB: ${{ secrets.PASSPHRASE_AVB }}
