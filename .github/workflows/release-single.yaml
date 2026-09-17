@@ -153,12 +153,18 @@ jobs:
           .tmp/avbroot ota extract --input ".tmp/$OTA_TARGET.zip" --directory .tmp/extracted_boot --partition boot
           STOCK_BOOT=".tmp/extracted_boot/boot.img"
 
-          echo "Unpacking stock boot image (header and ramdisk)..."
-          .tmp/avbroot boot unpack --input "$STOCK_BOOT" --output-header .tmp/boot_work/boot.toml --output-ramdisk-prefix .tmp/boot_work/ramdisk.img. --no-output-kernel
+          echo "Unpacking stock AVB container from boot image..."
+          .tmp/avbroot avb unpack --input "$STOCK_BOOT" --output-info .tmp/boot_work/avb.toml --output-raw .tmp/boot_work/raw_stock.img
 
-          echo "Repacking boot image with Docker GKI kernel..."
+          echo "Unpacking stock boot header and ramdisk from raw boot image..."
+          .tmp/avbroot boot unpack --input .tmp/boot_work/raw_stock.img --output-header .tmp/boot_work/boot.toml --output-ramdisk-prefix .tmp/boot_work/ramdisk.img. --no-output-kernel
+
+          echo "Repacking raw boot image with Docker GKI kernel..."
+          .tmp/avbroot boot pack --input-header .tmp/boot_work/boot.toml --input-ramdisk-prefix .tmp/boot_work/ramdisk.img. --input-kernel "$NEW_KERNEL" --output .tmp/boot_work/raw_docker.img
+
+          echo "Repacking AVB container around new raw boot image..."
           REPACKED_BOOT=".tmp/boot_docker.img"
-          .tmp/avbroot boot pack --input-header .tmp/boot_work/boot.toml --input-ramdisk-prefix .tmp/boot_work/ramdisk.img. --input-kernel "$NEW_KERNEL" --output "$REPACKED_BOOT"
+          .tmp/avbroot avb pack --input-info .tmp/boot_work/avb.toml --input-raw .tmp/boot_work/raw_docker.img --output "$REPACKED_BOOT"
 
           echo "Hooking repacked boot into patchOTAs via rooted-ota.sh..."
           # avbroot ota patch treats <--magisk | --prepatched | --rootless> as mutually exclusive modes.
