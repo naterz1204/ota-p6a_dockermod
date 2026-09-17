@@ -145,7 +145,7 @@ jobs:
             echo "Error: Image not generated at $RAW_IMAGE"
             exit 1
           fi
-          lz4 -f -l -12 --favor-dec "$RAW_IMAGE" "$NEW_KERNEL"
+          lz4 -c -l -12 "$RAW_IMAGE" > "$NEW_KERNEL"
           echo "Image.lz4 generated successfully."
 
           echo "Extracting stock boot image from OTA..."
