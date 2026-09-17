@@ -130,18 +130,21 @@ jobs:
           KERNEL_OUT_DIR="$RUNNER_TEMP/kernel_out"
           mkdir -p "$KERNEL_OUT_DIR"
 
-          echo "Cloning GrapheneOS kernel_common-6.1..."
-          git clone --depth 1 https://github.com/GrapheneOS/kernel_common-6.1.git "$KERNEL_SRC_DIR"
+          KERNEL_TAG="${OTA_VERSION%01}00"
+          echo "Cloning GrapheneOS kernel tag ${KERNEL_TAG}..."
+          git clone --depth 1 https://github.com/GrapheneOS/kernel_common-6.1.git -b "${KERNEL_TAG}" "$KERNEL_SRC_DIR"
 
-          echo "Appending Docker configuration to gki_defconfig..."
-          cat ota/docker.config >> "$KERNEL_SRC_DIR/arch/arm64/configs/gki_defconfig"
+          export BRANCH="android14-6.1"
+          export KMI_GENERATION="11"
+          export KBUILD_BUILD_TIMESTAMP="$(git -C "$KERNEL_SRC_DIR" log -1 --format=%cd --date=format:'%a %b %e %H:%M:%S UTC %Y')"
 
-          echo "Patching extract-cert.c for host OpenSSL 3 compatibility..."
-          sed -i 's|int main(int argc, char \*\*argv)|const char *key_pass = NULL;\nint main(int argc, char **argv)|' "$KERNEL_SRC_DIR/certs/extract-cert.c"
+          echo "Configuring GKI with Docker options out-of-tree..."
+          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          "$KERNEL_SRC_DIR/scripts/kconfig/merge_config.sh" -m -O "$KERNEL_OUT_DIR" "$KERNEL_OUT_DIR/.config" ota/docker.config
+          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
           echo "Compiling GKI Image with LLVM/Clang..."
-          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
-          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-D__ANDROID_COMMON_KERNEL__" --output-sync=target -j$(nproc) Image
+          make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-D__ANDROID_COMMON_KERNEL__" BRANCH="$BRANCH" KMI_GENERATION="$KMI_GENERATION" --output-sync=target -j$(nproc) Image
 
           RAW_IMAGE="$KERNEL_OUT_DIR/arch/arm64/boot/Image"
           NEW_KERNEL="$KERNEL_OUT_DIR/arch/arm64/boot/Image.lz4"
@@ -175,6 +178,9 @@ jobs:
           # To patch Magisk INTO our custom boot image, we use --replace boot <image> along with --magisk:
           sed -i 's|args+=("--output" "$targetFile")|args+=("--output" "$targetFile")\n      args+=("--patch-arg=--replace" "--patch-arg" "boot" "--patch-arg" ".tmp/boot_docker.img")|g' rooted-ota.sh
           echo "Successfully wired replaced Docker boot image."
+
+          echo "Patching uploadOtaServerData git checkout fallback..."
+          sed -i 's|git checkout gh-pages|git checkout -B gh-pages origin/gh-pages 2>/dev/null \|\| git checkout -b gh-pages|' rooted-ota.sh
 
           echo "Patching uploadFile to use official gh CLI with retries for large asset uploads..."
           python3 - <<'EOF'
