@@ -130,12 +130,64 @@ jobs:
           KERNEL_OUT_DIR="$RUNNER_TEMP/kernel_out"
           mkdir -p "$KERNEL_OUT_DIR"
 
-          KERNEL_TAG="${OTA_VERSION%01}00"
-          echo "Cloning GrapheneOS kernel tag ${KERNEL_TAG}..."
-          git clone --depth 1 https://github.com/GrapheneOS/kernel_common-6.1.git -b "${KERNEL_TAG}" "$KERNEL_SRC_DIR"
+          echo "=== Step 1: Inspecting stock vendor_dlkm for kernel requirements ==="
+          mkdir -p .tmp/kernel_inspect
+          .tmp/avbroot ota extract --input ".tmp/$OTA_TARGET.zip" --directory .tmp/kernel_inspect --partition vendor_dlkm
+          .tmp/avbroot avb unpack --input .tmp/kernel_inspect/vendor_dlkm.img --output-raw .tmp/kernel_inspect/vendor_dlkm_raw.img
 
-          export BRANCH="android14-6.1"
-          export KMI_GENERATION="11"
+          TARGET_VERMAGIC=$(strings .tmp/kernel_inspect/vendor_dlkm_raw.img | grep -m1 "vermagic=" | awk '{print $1}' | cut -d'=' -f2)
+          EXPECTED_COMMIT=$(echo "$TARGET_VERMAGIC" | grep -oP '(?<=-g)[0-9a-f]{12}')
+          EXPECTED_BRANCH=$(echo "$TARGET_VERMAGIC" | grep -oP '(?<=-)[a-zA-Z0-9]+(?=-[0-9]+-)')
+          EXPECTED_KMI=$(echo "$TARGET_VERMAGIC" | grep -oP "(?<=-${EXPECTED_BRANCH}-)[0-9]+(?=-g)")
+          EXPECTED_RANDSTRUCT=$(strings .tmp/kernel_inspect/vendor_dlkm_raw.img | grep -m1 "RANDSTRUCT_" | grep -oP '(?<=RANDSTRUCT_)[0-9a-f]{64}')
+
+          echo "Target Vermagic:      $TARGET_VERMAGIC"
+          echo "Expected Commit:      $EXPECTED_COMMIT"
+          echo "Expected Branch:      $EXPECTED_BRANCH"
+          echo "Expected KMI Gen:     $EXPECTED_KMI"
+          echo "Expected RANDSTRUCT:  $EXPECTED_RANDSTRUCT"
+
+          if [[ -z "$TARGET_VERMAGIC" || -z "$EXPECTED_COMMIT" || -z "$EXPECTED_BRANCH" || -z "$EXPECTED_KMI" ]]; then
+            echo "ERROR: Failed to extract kernel requirements from stock vendor_dlkm. Aborting early."
+            exit 1
+          fi
+
+          echo "=== Step 2: Resolving matching GrapheneOS kernel source tag/commit ==="
+          # Try cloning candidate release tags first, fallback to commit lookup
+          MATCHED=false
+          for tag_cand in "${OTA_VERSION}" "${OTA_VERSION%01}00" "${OTA_VERSION%??}00"; do
+            echo "Checking candidate kernel tag '$tag_cand'..."
+            if git clone --depth 1 https://github.com/GrapheneOS/kernel_common-6.1.git -b "$tag_cand" "$KERNEL_SRC_DIR" 2>/dev/null; then
+              cand_commit=$(git -C "$KERNEL_SRC_DIR" rev-parse --short=12 HEAD)
+              if [[ "$cand_commit" == "$EXPECTED_COMMIT" ]]; then
+                echo "SUCCESS: Found matching kernel tag $tag_cand with commit $cand_commit"
+                MATCHED=true
+                break
+              else
+                echo "Tag $tag_cand has commit $cand_commit, but vendor_dlkm requires $EXPECTED_COMMIT. Cleaning..."
+                rm -rf "$KERNEL_SRC_DIR"
+              fi
+            fi
+          done
+
+          if [[ "$MATCHED" != 'true' ]]; then
+            echo "Tags did not match. Fetching commit $EXPECTED_COMMIT directly from GrapheneOS/kernel_common-6.1..."
+            git clone --depth 100 https://github.com/GrapheneOS/kernel_common-6.1.git "$KERNEL_SRC_DIR"
+            if ! git -C "$KERNEL_SRC_DIR" checkout "$EXPECTED_COMMIT"; then
+              echo "ERROR: Commit $EXPECTED_COMMIT not found in kernel_common-6.1! FAILING EARLY."
+              exit 1
+            fi
+          fi
+
+          ACTUAL_COMMIT=$(git -C "$KERNEL_SRC_DIR" rev-parse --short=12 HEAD)
+          echo "Confirmed kernel commit: $ACTUAL_COMMIT"
+          if [[ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]]; then
+            echo "ERROR: Kernel commit mismatch ($ACTUAL_COMMIT != $EXPECTED_COMMIT). FAILING EARLY."
+            exit 1
+          fi
+
+          export BRANCH="${EXPECTED_BRANCH}-6.1"
+          export KMI_GENERATION="$EXPECTED_KMI"
           export KBUILD_BUILD_TIMESTAMP="$(git -C "$KERNEL_SRC_DIR" log -1 --format=%cd --date=format:'%a %b %e %H:%M:%S UTC %Y')"
 
           echo "Configuring GKI with Docker options out-of-tree..."
@@ -152,6 +204,25 @@ jobs:
             echo "Error: Image not generated at $RAW_IMAGE"
             exit 1
           fi
+
+          echo "=== Step 3: Fail-Early Verification of Compiled Kernel ==="
+          BUILT_BANNER=$(strings "$RAW_IMAGE" | grep -m1 "Linux version")
+          echo "Compiled kernel banner: $BUILT_BANNER"
+
+          if ! echo "$BUILT_BANNER" | grep -q "$TARGET_VERMAGIC"; then
+            echo "FATAL: Compiled kernel vermagic does NOT contain target '$TARGET_VERMAGIC'!"
+            echo "Target: $TARGET_VERMAGIC"
+            echo "Built:  $BUILT_BANNER"
+            echo "FAILING EARLY to prevent flashing unbootable kernel."
+            exit 1
+          fi
+
+          if echo "$BUILT_BANNER" | grep -q -- "-dirty"; then
+            echo "FATAL: Kernel source tree was dirty (-dirty flag present). FAILING EARLY."
+            exit 1
+          fi
+
+          echo "Verification SUCCESS: Vermagic strictly matches vendor_dlkm ($TARGET_VERMAGIC)."
           lz4 -c -l -12 "$RAW_IMAGE" > "$NEW_KERNEL"
           echo "Image.lz4 generated successfully."
 
@@ -180,7 +251,7 @@ jobs:
           echo "Successfully wired replaced Docker boot image."
 
           echo "Patching uploadOtaServerData git checkout fallback..."
-          sed -i 's|git checkout gh-pages|git checkout -B gh-pages origin/gh-pages 2>/dev/null \|\| git checkout -b gh-pages|' rooted-ota.sh
+          sed -i 's|git checkout gh-pages|git checkout -B gh-pages origin/gh-pages 2>/dev/null \|\| git checkout gh-pages 2>/dev/null \|\| git checkout --orphan gh-pages|' rooted-ota.sh
 
           echo "Patching uploadFile to use official gh CLI with retries for large asset uploads..."
           python3 - <<'EOF'
