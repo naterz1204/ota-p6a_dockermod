@@ -106,13 +106,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq curl git bc bison flex libssl-dev libelf-dev lz4 \
-            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu clang llvm lld dwarves kmod
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu clang llvm lld dwarves kmod \
+            rsync cpio zstd libncurses-dev zlib1g-dev python3 libcap-dev
       - name: Build custom Docker GKI kernel and prepare prepatched boot
         if: env.BUILD_DOCKER_KERNEL == 'true'
         run: |
           set -euo pipefail
           echo "=== Building Docker-enabled GKI Kernel ==="
           export SKIP_CLEANUP=true
+          export KBUILD_BUILD_USER=grapheneos
+          export KBUILD_BUILD_HOST=github-actions
           . rooted-ota.sh
           findLatestVersion
           checkBuildNecessary
