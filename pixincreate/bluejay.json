@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "full": {
+    "location_ota": "https://github.com/naterz1204/ota-p6a_dockermod/releases/download/2026091001/bluejay-2026091001-7ce83d0-pixincreate-v30.7-dirty.zip",
+    "location_csig": "https://github.com/naterz1204/ota-p6a_dockermod/releases/download/2026091001/bluejay-2026091001-7ce83d0-pixincreate-v30.7-dirty.zip.csig"
+  }
+}
