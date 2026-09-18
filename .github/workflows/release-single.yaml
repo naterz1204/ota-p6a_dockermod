@@ -76,25 +76,7 @@ jobs:
           fetch-depth: 1 # Efficent checkout, we only need the one ref
       - name: Patch rooted-ota.sh for avbroot rootless compatibility
         run: |
-          python3 - <<'EOF'
-          with open('rooted-ota.sh', 'r') as f:
-              content = f.read()
-          target = """      if [[ "$flavor" == 'pixincreate' ]]; then
-        args+=("--patch-arg=--magisk" "--patch-arg" ".tmp/pixincreate-$MAGISK_VERSION.apk")
-        args+=("--patch-arg=--magisk-preinit-device" "--patch-arg" "$MAGISK_PREINIT_DEVICE")
-      fi"""
-          replacement = target + """
-      if [[ "$flavor" == 'rootless' ]]; then
-        args+=("--patch-arg=--rootless")
-      fi"""
-          if target in content:
-              content = content.replace(target, replacement, 1)
-              with open('rooted-ota.sh', 'w') as f:
-                  f.write(content)
-              print("SUCCESS: Patched rooted-ota.sh with --patch-arg=--rootless for avbroot.")
-          else:
-              print("WARNING: Target snippet not found in rooted-ota.sh.")
-          EOF
+          sed -i '/pixincreate-\$MAGISK_VERSION\.apk/!b;n;n;a\      if [[ "$flavor" == '\''rootless'\'' ]]; then args+=("--patch-arg=--rootless"); fi' rooted-ota.sh
       - name: Checkout OTA repository for updating OTA server on GitHub Pages
         uses: actions/checkout@v4
         with:
