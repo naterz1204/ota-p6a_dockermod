@@ -116,6 +116,13 @@ jobs:
         if: env.BUILD_DOCKER_KERNEL == 'true'
         run: |
           set -euo pipefail
+          echo "=== Configuring 10GB swapfile to prevent runner OOM ==="
+          sudo fallocate -l 10G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=10240
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
           echo "=== Building Docker-enabled GKI Kernel ==="
           export SKIP_CLEANUP=true
           export KBUILD_BUILD_USER=grapheneos
