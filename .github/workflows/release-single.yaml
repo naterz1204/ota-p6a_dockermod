@@ -231,6 +231,14 @@ jobs:
             cp .tmp/stock_cert.pem "$KERNEL_SRC_DIR/certs/stock_cert.pem"
           fi
 
+          echo "=== Setting up Google Android Clang toolchain (r487747c) ==="
+          CLANG_DIR="$RUNNER_TEMP/clang-r487747c"
+          mkdir -p "$CLANG_DIR"
+          echo "Downloading clang-r487747c..."
+          curl -sSL "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-release/clang-r487747c.tar.gz" | tar -xz -C "$CLANG_DIR"
+          export PATH="$CLANG_DIR/bin:$PATH"
+          echo "Active Clang version: $(clang --version | head -n 1)"
+
           echo "Configuring GKI with Docker options out-of-tree..."
           make -C "$KERNEL_SRC_DIR" O="$KERNEL_OUT_DIR" ARCH=arm64 LLVM=1 LLVM_IAS=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
           "$KERNEL_SRC_DIR/scripts/kconfig/merge_config.sh" -m -O "$KERNEL_OUT_DIR" "$KERNEL_OUT_DIR/.config" ota/docker.config
